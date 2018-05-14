@@ -1,4 +1,4 @@
-FROM sitespeedio/webbrowsers:firefox-58.0-chrome-64.0
+FROM sitespeedio/webbrowsers:chrome-66-firefox-61-beta-1
 
 RUN sudo apt-get update && sudo apt-get install curl \
   git -y && \
