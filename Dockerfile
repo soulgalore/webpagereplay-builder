@@ -10,6 +10,7 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 
 RUN go get github.com/catapult-project/catapult/web_page_replay_go || true
 COPY go.mod /root/go/src/github.com/catapult-project/catapult/web_page_replay_go/src/
+RUN  pip install six
 COPY build.py /build.py
 COPY start.sh /start.sh
 
