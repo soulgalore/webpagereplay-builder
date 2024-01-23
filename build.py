@@ -1,8 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (c) 2017 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 import os
+import re
 import shutil
 import sys
 import subprocess
@@ -14,15 +15,21 @@ from telemetry.core import util
 from telemetry.core import platform as platform_module
 from telemetry.internal.util import binary_manager
 import py_utils
+# from telemetry.core import util
+# rom telemetry.core import platform as platform_module
+_MIN_GO_VERSION = [1, 12]
 _WPR_GO_DIR = os.path.join(util.GetCatapultDir(), 'web_page_replay_go', 'src')
-_SUPPORTED_GO_VERSIONS = ('go1.12', 'go1.13', 'go1.14', 'go1.15', 'go1.16', 'go1.17')
 def check_go_version():
   try:
-    out = subprocess.check_output(['go', 'version'])
+    out = subprocess.check_output(['go', 'version']).decode()
   except subprocess.CalledProcessError:
     out = 'no go binary found'
-  assert any(v in out for v in _SUPPORTED_GO_VERSIONS), (
-      'Require go version 1.8 or higher. Found: %s' % out)
+  match = re.findall(r'go(\d+).(\d+)', out)
+  assert len(match) > 0, ('Unable to parse go version from "%s"' % out)
+  version = [int(match[0][0]), int(match[0][1])]
+  assert (version[0] > _MIN_GO_VERSION[0] or
+    (version[0] == _MIN_GO_VERSION[0] and version[1] >= _MIN_GO_VERSION[1])), (
+    'Require go version %s or higher. Found: %s' % (_MIN_GO_VERSION, version))
 def build_go_binary(binary_name, os_name, os_arch):
   """ Build and return path to wpr go binary."""
   # go build command recognizes 'amd64' but not 'x86_64', so we switch 'x86_64'
@@ -57,18 +64,28 @@ def build_go_binary(binary_name, os_name, os_arch):
     env['GOOS'] = os_name
     env['GOARCH'] = os_arch
     env['CGO_ENABLED'] = '0'
-    print 'GOPATH=%s' % go_path_dir
-    print 'CWD=%s' % _WPR_GO_DIR
+    print('GOPATH=%s' % go_path_dir)
+    print('CWD=%s' % _WPR_GO_DIR)
     get_cmd = ['go', 'get', '-d', './...']
-    print 'Running get command: %s' % ' '.join(get_cmd)
+    print('Running get command: %s' % ' '.join(get_cmd))
     subprocess.check_call(get_cmd, env=env, cwd=_WPR_GO_DIR)
     build_cmd = ['go', 'build', '-v', '%s.go' % binary_name]
-    print 'Running build command: %s' % ' '.join(build_cmd)
-    subprocess.check_call(build_cmd, env=env, cwd=_WPR_GO_DIR)
-    cp_cmd = ['cp', 'wpr', '/output/']  
-    subprocess.check_call(cp_cmd, env=env, cwd=_WPR_GO_DIR)
+    print('Running build command: %s' % ' '.join(build_cmd))
+    process = subprocess.Popen(build_cmd, env=env, cwd=_WPR_GO_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+
+    if process.returncode != 0:
+        print("ERROR: Go build failed.")
+        print("Standard Output:\n", stdout.decode())
+        print("Standard Error:\n", stderr.decode())
+        raise subprocess.CalledProcessError(process.returncode, build_cmd)
+
+    mkdir_cmd = ['mkdir', '-p', '/output/build/%s/%s' % (os_name,  os_arch)]
+    subprocess.check_call(mkdir_cmd, env=env, cwd=_WPR_GO_DIR)
+    mv_cmd = ['mv', 'wpr', '/output/build/%s/%s' % (os_name,  os_arch)]
+    subprocess.check_call(mv_cmd, env=env, cwd=_WPR_GO_DIR)  
     clean_cmd = ['go', 'clean', '-modcache']
-    print 'Running clean command: %s' % ' '.join(clean_cmd)
+    print('Running clean command: %s' % ' '.join(clean_cmd))
     subprocess.check_call(clean_cmd, env=env, cwd=_WPR_GO_DIR)
   finally:
     if go_path_dir:
@@ -78,29 +95,30 @@ def build_go_binary(binary_name, os_name, os_arch):
   return os.path.join(_WPR_GO_DIR, binary_name)
 # TODO(nedn): support building other architectures & OSes.
 _SUPPORTED_PLATFORMS = (
- # ('win', 'x86'),
- # ('mac', 'arm64'),
- # ('mac', 'x86_64'),
+  #('win', 'x86'),
+  #('mac', 'arm64'),
+  #('mac', 'x86_64'),
   ('linux', 'x86_64'),
- # ('win', 'AMD64'),
- # ('linux', 'armv7l'),
- # ('linux', 'aarch64')
+  #('win', 'AMD64'),
+  #('linux', 'armv7l'),
+  #('linux', 'aarch64')
 )
 def get_latest_wpr_go_commit_hash():
   return subprocess.check_output(
-    ['git', 'log', '-n', '1', '--pretty=format:%H', _WPR_GO_DIR]).strip()
+      ['git', 'log', '-n', '1', '--pretty=format:%H', _WPR_GO_DIR],
+      text=True).strip()
 def BuildAndUpdateGoBinary(binary_name, os_name, arch_name):
   if (os_name, arch_name) not in _SUPPORTED_PLATFORMS:
     raise NotImplementedError('OS = %s, ARCH = %s is not supported' %
         (os_name, arch_name))
-  print 'Build %s binary for OS %s, ARCH: %s' % (binary_name, os_name, arch_name)
-  binary_file = build_go_binary(binary_name, os_name, arch_name)
-  #print 'Update %s binary dependency for OS %s, ARCH: %s' % (
-  #    binary_name, os_name, arch_name)
-  #binary_manager.UpdateDependency(
-  #    '%s_go' % binary_name, binary_file,
-  ##     version=get_latest_wpr_go_commit_hash(),
-  #    os_name=os_name, arch_name=arch_name)
+  print('Build %s binary for OS %s, ARCH: %s' % (
+      binary_name, os_name, arch_name))
+  build_go_binary(binary_name, 'linux', 'x86_64')
+  build_go_binary(binary_name, 'linux', 'armv7l')
+  build_go_binary(binary_name, 'linux', 'aarch64')
+  build_go_binary(binary_name, 'mac', 'x86_64')
+  build_go_binary(binary_name, 'mac', 'arm64')
+
 def main():
   for os_name, arch_name in _SUPPORTED_PLATFORMS:
     # wpr is the wpr binary for recording and replaying network traffic to allow
@@ -108,6 +126,6 @@ def main():
     BuildAndUpdateGoBinary('wpr', os_name, arch_name)
     # httparchive is the wpr binary for interrogating and editing a wpr archive
     # that was previously recorded.
-    BuildAndUpdateGoBinary('httparchive', os_name, arch_name)
+    # BuildAndUpdateGoBinary('httparchive', os_name, arch_name)
 if __name__ == "__main__":
   sys.exit(main())
