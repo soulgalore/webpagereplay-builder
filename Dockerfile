@@ -5,8 +5,8 @@ FROM python:3.11.7-bullseye
 
 RUN apt-get update && apt-get install curl \
   git -y && \
-  curl -O https://storage.googleapis.com/golang/go1.21.0.linux-amd64.tar.gz && \
-  tar -xvf go1.21.0.linux-amd64.tar.gz && \
+  curl -O https://storage.googleapis.com/golang/go1.21.11.linux-amd64.tar.gz && \
+  tar -xvf go1.21.11.linux-amd64.tar.gz && \
   mv go /usr/local
 
 ENV PATH="/usr/local/go/bin:${PATH}"
